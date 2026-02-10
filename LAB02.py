@@ -6,9 +6,9 @@ HASH_TABLE_FILE = "hash_table.json"
 CHUNK_SIZE = 8192
 
 def hash_file(file_path: str, algo: str = "sha256" ) -> str:
-   h = hashlib.new(algo)
-   with open(file_path, "rb") as f:
-      while True:
+    h = hashlib.new(algo)
+    with open(file_path, "rb") as f:
+        while True:
             chunk = f.read(CHUNK_SIZE)
             if not chunk:
                 break
@@ -49,11 +49,11 @@ def validate_hash (dir_path: str, table_file: str = HASH_TABLE_FILE) -> None:
     with open(table_file, "r", encoding="utf-8") as f:
         table = json.load(f)
     
-    current_file = set(traverse_directory(dir_path))
+    current_files = set(traverse_directory(dir_path))
     stored_files = set(table.keys())
 
     for fp in sorted(stored_files - current_files):
-        print(f"{fp} _> DELETED")
+        print(f"{fp} -> DELETED")
 
     for fp in sorted(current_files - stored_files):
         print(f"{fp} -> NEW FILE ADDED")
