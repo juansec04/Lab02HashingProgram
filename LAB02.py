@@ -1,131 +1,93 @@
-
 import os
-import json
+import json 
 import hashlib
-from typing import Dict, Tuple
 
-DEFAULT_ALGO = "sha256"
-DEFAULT_TABLE_NAME = "hash_table.json"
+HASH_TABLE_FILE = "hash_table.json"
+CHUNK_SIZE = 8192
 
-
-def hash_file(filepath: str, algo: str = DEFAULT_ALGO, chunk_size: int = 1024 * 1024) -> str:
-    """Return cryptographic hash of a file."""
-    h = hashlib.new(algo)
-    with open(filepath, "rb") as f:
-        while True:
-            chunk = f.read(chunk_size)
+def hash_file(file_path: str, algo: str = "sha256" ) -> str:
+   h = hashlib.new(algo)
+   with open(file_path, "rb") as f:
+      while True:
+            chunk = f.read(CHUNK_SIZE)
             if not chunk:
                 break
             h.update(chunk)
     return h.hexdigest()
 
+def traverse_directory(dir_path: str) -> dict:
+    paths = []
+    for root, _, files in os.walk(dir_path):
+        for name in files:
+            paths.append(os.path.abspath(os.path.join(root, name)))
+    return paths
 
-def traverse_directory(root_dir: str) -> Dict[str, str]:
-    """Hash all files in a directory and return {relative_path: hash}."""
-    if not os.path.isdir(root_dir):
-        raise ValueError(f"Not a directory: {root_dir}")
-
-    table: Dict[str, str] = {}
-
-    for dirpath, _, filenames in os.walk(root_dir):
-        for name in filenames:
-            full_path = os.path.join(dirpath, name)
-
-            if os.path.abspath(full_path) == os.path.abspath(
-                os.path.join(root_dir, DEFAULT_TABLE_NAME)
-            ):
-                continue
-
-            rel_path = os.path.relpath(full_path, root_dir)
-
-            try:
-                table[rel_path] = hash_file(full_path)
-            except (PermissionError, FileNotFoundError) as e:
-                table[rel_path] = f"ERROR: {type(e).__name__}"
-
-    return table
-
-
-def generate_table(root_dir: str, output_json: str = DEFAULT_TABLE_NAME) -> None:
-    """Generate JSON hash table for directory."""
-    hashes = traverse_directory(root_dir)
-
-    payload = {
-        "base_directory": os.path.abspath(root_dir),
-        "algorithm": DEFAULT_ALGO,
-        "files": hashes
-    }
-
-    out_path = os.path.join(root_dir, output_json)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-
-    print(f"Hash table generated: {out_path}")
-
-
-def load_table(json_path: str) -> Tuple[str, str, Dict[str, str]]:
-    """Load hash table JSON."""
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if "base_directory" not in data or "algorithm" not in data or "files" not in data:
-        raise ValueError("Invalid hash table JSON format.")
-
-    return data["base_directory"], data["algorithm"], data["files"]
-
-
-def validate_hash(table_json_path: str) -> None:
-    """Verify current files against stored hashes."""
-    base_dir, algo, stored_files = load_table(table_json_path)
-
-    if not os.path.isdir(base_dir):
-        print(f"Base directory missing: {base_dir}")
+def generate_table(dir_path: str, out_file: str = HASH_TABLE_FILE) -> None:
+    if not os.path.isdir(dir_path):
+        print("Directory does not exist.")
         return
+    
+    table = {}
+    for fp in traverse_directory(dir_path):
+        try:
+            table[fp] = hash_file(fp)
+        except Exception as e:
+            print(f"Error hashing  {fp}: {e}")
+    
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(table, f, indent=2)
 
-    current_files = traverse_directory(base_dir)
+    print("Hash table generated") 
+    print(f"Saved to: {out_file}")
+    print(f"Files hashed: {len(table)}")
 
-    stored_set = set(stored_files.keys())
-    current_set = set(current_files.keys())
+def validate_hash (dir_path: str, table_file: str = HASH_TABLE_FILE) -> None:
+    if not os.path.isfile(table_file):
+        print("Hash table file does not exist.")
+        return
+    
+    with open(table_file, "r", encoding="utf-8") as f:
+        table = json.load(f)
+    
+    current_file = set(traverse_directory(dir_path))
+    stored_files = set(table.keys())
 
-    for rel_path in sorted(stored_set - current_set):
-        print(f"File deleted: {rel_path}")
+    for fp in sorted(stored_files - current_files):
+        print(f"{fp} _> DELETED")
 
-    for rel_path in sorted(current_set - stored_set):
-        print(f"New file added: {rel_path}")
+    for fp in sorted(current_files - stored_files):
+        print(f"{fp} -> NEW FILE ADDED")
 
-    for rel_path in sorted(stored_set & current_set):
-        stored_hash = stored_files.get(rel_path)
-        current_hash = current_files.get(rel_path)
+    for fp in sorted(stored_files & current_files):
+        try:
+            current_hash = hash_file(fp)
+            if current_hash == table[fp]:
+                print(f"{fp} hash is valid")
+            else:
+                print(f"{fp} hash is INVALID")
+        except Exception as e:
+            print(f"ERROR validating: {e}")
 
-        if stored_hash == current_hash:
-            print(f"{rel_path} hash is valid")
-        else:
-            print(f"{rel_path} hash is invalid")
-
-
-def main() -> None:
-    print("Hash Demonstration Program")
-    print("1) Generate hash table")
+def main():
+    print("1) Generate new hash table")
     print("2) Verify hashes")
-
     choice = input("Enter 1 or 2: ").strip()
 
     if choice == "1":
-        directory = input("Enter directory path: ").strip()
-        try:
-            generate_table(directory)
-        except Exception as e:
-            print(f"Error: {e}")
-
+        dir_path = input("Enter directory path to hash: ").strip()
+        out_name = input(f"Output json filename (press Enter for {HASH_TABLE_FILE}): ").strip()
+        if not out_name:
+            out_name = HASH_TABLE_FILE
+        generate_table(dir_path, out_name)
+        
     elif choice == "2":
-        table_path = input("Enter path to hash_table.json: ").strip()
-        try:
-            validate_hash(table_path)
-        except Exception as e:
-            print(f"Error: {e}")
+        dir_path = input("Enter directory path to verify: ").strip()
+        table_name = input(f"Hash table filename (press Enter for {HASH_TABLE_FILE}): ").strip()
+        if not table_name:
+            table_name = HASH_TABLE_FILE
+        validate_hash(dir_path, table_name)
     else:
         print("Invalid option.")
-
 
 if __name__ == "__main__":
     main()
